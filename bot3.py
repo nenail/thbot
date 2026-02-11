@@ -1,4 +1,5 @@
 from telethon import TelegramClient, events, errors
+from telethon.errors import FloodWaitError
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
@@ -10,7 +11,7 @@ import json
 import os
 import sqlite3
 import random
-
+import time
 config_path = os.path.join(os.path.dirname(__file__), "config.json")
 
 with open(config_path, "r", encoding="utf-8") as f:
@@ -20,14 +21,16 @@ topics = config["topics"]
 api_id = config["api_id"]
 api_hash = config["api_hash"]
 phone = config["phone"]
-delay_range = config.get("delay", [0.5, 1])
+bot_token = config["token_bot"]
+teg = config["metioning"]
+delay_range = config.get("delay", [20, 35])
+MESSAGE_TEXT = config.get("message")
 ADMIN_ID = config["admin_id"]
 # Настройки для подключения к Telegram API через библиотеку telethon
 
 client = TelegramClient('session_name', api_id, api_hash)
 
 # Настройки для подключения к Telegram API через библиотеку aiogram
-bot_token = '8398051425:AAEK_I4nVms_fM1z7o30OJWNBZWyOixgDyE'
 bot = Bot(token=bot_token)
 dp = Dispatcher()
 chat_id = 8172845069
@@ -38,11 +41,13 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER UNIQUE,
     name TEXT,
-    topic TEXT
+    topic TEXT,
+    last_message TEXT,
+    invite TEXT
 )
 """)
 conn.commit()
-
+count_send = 0
 conn2 = sqlite3.connect("users.db", check_same_thread=False)  # Важно для aiogram!
 cursor2 = conn2.cursor()
 cursor2.execute("""
@@ -56,6 +61,42 @@ CREATE TABLE IF NOT EXISTS users (
 )
 """)
 conn2.commit()
+
+# Словарь автоответов
+auto_responses = {
+    'здравствуйте': 'Здравствуйте!',
+    'здраствуйте': 'Здраствуйте! ',
+    'добрый день': 'Добрый день',
+    'начинки': """ Вот держите начинки, которые я использую в своих тортах:
+🍓 Клубничный поцелуй – свежая клубника с нежным кремом
+🍫 Шоколадная страсть – тёмный или молочный шоколад с кремом
+🥭 Манговое солнце – манго с лёгким сливочным муссом
+🍯 Карамельный вихрь – тянущаяся карамель с орехами
+🍒 Вишнёвое облако – вишня с лёгким сливочным кремом
+🍌 Банановый взлёт – банан с шоколадной крошкой
+🥥 Кокосовый рай – кокосовая стружка и нежный крем
+🍋 Цитрусовая свежесть – лимонный или апельсиновый курд
+🌰 Ореховая фантазия – миндаль, фундук или арахис с кремом
+🍫🥝 Шоколадно-кивиновый дуэт – шоколад + кисло-сладкий киви
+""",
+    'спасибо': 'Пожалуйста! Обращайтесь.',
+    'цена': '1 000 за киллограмм.',
+    'стоимость': '1 000 за киллограмм.',
+    'как заказать': 'Чтобы заказать торт, нужно выбрать начинку, дизайн и вес.',
+    'здраствуйте, цена': '1 000 за киллограмм.',
+    'привет': 'Здраствуйте!',
+}
+
+# @client.on(events.NewMessage)
+# async def handler(event):
+#     message_text = event.message.message.lower()  # приводим к нижнему регистру для удобства
+#     sender = await event.get_sender()
+#     if sender.id == 5945948586:  
+#         for key, reply in auto_responses.items():
+#             if key in message_text:
+#                 time.sleep(0.8)  # небольшая задержка перед ответом
+#                 await event.reply(reply)
+#                 break  # чтобы не отвечать на несколько совпадений сразу
 
 def log(msg, level="INFO"):
     now = datetime.now().strftime("%H:%M:%S")
@@ -73,7 +114,7 @@ def log(msg, level="INFO"):
 
 
 async def check_last_messages(chat_id):
-    my_id = 8172845069
+    my_id = 8249240606
     # получаем 2 последних сообщения
     messages = await client.get_messages(chat_id, limit=2)
     
@@ -87,13 +128,26 @@ async def check_last_messages(chat_id):
         else:
             return True
 
-async def send_to_chat(chat_info, sender_id):
+async def get_random_mentions(entity, count=5):
+    mentions = []
+    async for user in client.iter_participants(entity):
+        if user.username:
+            mentions.append(f"@{user.username}")
+        if len(mentions) >= 50:  # не тащим весь чат
+            break
+
+    if len(mentions) < count:
+        return ""
+
+    return " " + " ".join(random.sample(mentions, count))
+
+async def send_to_chat(chat_info):
     global count_send
     # случайная задержка
     dmin, dmax = chat_info["delay"]
     delay = random.uniform(dmin, dmax)
     entity = await client.get_entity(chat_info["chat"])
-    cursor2.execute("SELECT MessageText FROM users WHERE id = ?", (sender_id,))
+    # cursor2.execute("SELECT MessageText FROM users WHERE id = ?", (sender_id,))
     # MESSAGE_TEXT = cursor2.fetchone()
     try:
         # сначала получаем сущность
@@ -121,35 +175,47 @@ async def send_to_chat(chat_info, sender_id):
 
         try:
             # собираем фотки
-            photos = []
-            for file in os.listdir(PHOTOS_FOLDER):
-                path = os.path.join(PHOTOS_FOLDER, file)
-                if os.path.isfile(path):
-                    photos.append(path)
+            if teg == "true":
+                PHOTO_PATH = os.path.join(PHOTOS_FOLDER, "main.jpg")
 
-            if photos:
-                await client.send_file(entity, photos, caption=MESSAGE_TEXT)
+                mentions = await get_random_mentions(entity, 5)
+                full_text = MESSAGE_TEXT + mentions
+
+                msg = await client.send_message(
+                    entity=entity,
+                    message=full_text,
+                    file=PHOTO_PATH
+                )
+
+                await asyncio.sleep(0.5)
+                await msg.edit(MESSAGE_TEXT)
+                count_send += 1
+                log(f"Отправлено в {name} (ID: {chat_info['chat']}) ", "INFO")
             else:
-                await client.send_message(entity, MESSAGE_TEXT)
-            count_send += 1
-            log(f"Отправлено в {name}", "DEBUG")
+                photos = []
+                for file in os.listdir(PHOTOS_FOLDER):
+                    path = os.path.join(PHOTOS_FOLDER, file)
+                    if os.path.isfile(path):
+                        photos.append(path)
 
+                # if photos:
+                #     await client.send_file(entity, photos, caption=MESSAGE_TEXT)
+                else:
+                    await client.send_message(entity, MESSAGE_TEXT)
+                count_send += 1
+                log(f"Отправлено в {name} задержка {delay}", "DEBUG")
         except errors.FloodWaitError as e:
-            log(f"FloodWaitError при отправке в {name}, жду {e.seconds} сек", "WARN")
+            log(f"Флуд ошибка жду еще {e.seconds}", "DEBUG")
+            time.sleep(e.seconds)
         except Exception as e:
-            log(f"Ошибка при отправке в {name}: {e}", "ERROR")
+            log(f"1 Ошибка при отправке в {name}: {e}", "ERROR")
 
     else:
         log(f"Последнее сообщение в {name} от меня, пропускаю.", "DEBUG")
 
 
 # 2214571044 1389592608  1445645481  1609700474 -1002867352447
-MESSAGE_TEXT = """Здравствуйте!
-Я делаю домашние торты на заказ.
-Нежные начинки, мягкие кремы, красивый и аккуратный дизайн — всё вручную и с любовью.
 
-Фото моих работ — ниже 👇
-Если вам нужен торт на праздник или просто к чаю, напишите мне в личку 💛"""
 PHOTOS_FOLDER = "photos"
 
 is_running = False
@@ -179,7 +245,17 @@ async def sendmessage():
             "delay": (0.5, 2)  # можно менять задержку
         }
 
-        await send_to_chat(chat_info)
+        try:
+            await send_to_chat(chat_info)
+
+            now = datetime.now()
+            formatted_date = now.strftime("%d/%m/%Y %H:%M:%S")
+            cursor.execute("UPDATE users SET last_message = ? WHERE id = ?", (formatted_date, chat_id,))
+            conn.commit()
+            time.sleep(20)
+        except Exception as e:
+            print(e)
+            log(f"Критическая ошибка в чате {chat_id}: {e}", "ERROR")
 
     is_running = False
     log(f"Готово. Прошёлся по {count_send} группам.", "INFO")
@@ -203,6 +279,10 @@ async def senduu():
             # приводим имя к нижнему регистру
             name_lower = name2.lower()
             topic_found = "не известно"
+            try:
+                invite_link = d.entity.username
+            except AttributeError as e:
+                invite_link = "NULL"
 
             for topic, keywords in topics.items():
                 if any(word.lower() in name_lower for word in keywords):
@@ -210,9 +290,11 @@ async def senduu():
                     break
 
             # вставка в базу
+            now = datetime.now()
+            formatted_date = now.strftime("%d/%m/%Y %H:%M:%S")
             cursor.execute(
-                "INSERT OR IGNORE INTO users (id, name, topic) VALUES (?, ?, ?)",
-                (user_id, name, topic_found)
+                "INSERT OR IGNORE INTO users (id, name, topic, last_message, invite) VALUES (?, ?, ?, ?, ?)",
+                (user_id, name, topic_found, formatted_date, invite_link)
             )
             conn.commit()
             log(f"Добавлен чат: {name} ID: {user_id}, topic: {topic_found}", "DEBUG")
@@ -361,5 +443,6 @@ async def main():
     print("Бот запущен.")
 
 if __name__ == '__main__':
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    asyncio.run(main())
+    # loop = asyncio.get_event_loop()
+    # loop.run_until_complete(main())
