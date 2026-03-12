@@ -3,12 +3,16 @@ from telethon.errors import FloodWaitError
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from telethon.tl.functions.contacts import SearchRequest
+from telethon.tl.types import Channel
 from datetime import datetime
 from colorama import Fore, Style, init
 
 import asyncio
 import json
 import os
+from tqdm import tqdm
+import time
 import sqlite3
 import random
 import time
@@ -34,6 +38,7 @@ client = TelegramClient('session_name', api_id, api_hash)
 bot = Bot(token=bot_token)
 dp = Dispatcher()
 chat_id = 8172845069
+
 
 conn = sqlite3.connect("chats.db", check_same_thread=False)
 cursor = conn.cursor()
@@ -114,7 +119,7 @@ def log(msg, level="INFO"):
 
 
 async def check_last_messages(chat_id):
-    my_id = 8249240606
+    my_id = ADMIN_ID
     # получаем 2 последних сообщения
     messages = await client.get_messages(chat_id, limit=2)
     
@@ -127,6 +132,30 @@ async def check_last_messages(chat_id):
             return False
         else:
             return True
+
+async def find_groups(client, keyword: str, limit: int = 50):
+    result = await client(SearchRequest(
+        q=keyword,
+        limit=limit
+    ))
+
+    groups = []
+
+    for chat in result.chats:
+        if isinstance(chat, Channel) and chat.megagroup:
+            title = chat.title
+            username = chat.username
+
+            link = f"https://t.me/{username}" if username else None
+
+            groups.append({
+                "title": title,
+                "username": username,
+                "link": link
+            })
+
+    return groups
+
 
 async def get_random_mentions(entity, count=5):
     mentions = []
@@ -143,8 +172,9 @@ async def get_random_mentions(entity, count=5):
 
 async def send_to_chat(chat_info):
     global count_send
+    global flood_error
     # случайная задержка
-    dmin, dmax = chat_info["delay"]
+    dmin, dmax = delay_range
     delay = random.uniform(dmin, dmax)
     entity = await client.get_entity(chat_info["chat"])
     # cursor2.execute("SELECT MessageText FROM users WHERE id = ?", (sender_id,))
@@ -198,15 +228,18 @@ async def send_to_chat(chat_info):
                     if os.path.isfile(path):
                         photos.append(path)
 
-                # if photos:
-                #     await client.send_file(entity, photos, caption=MESSAGE_TEXT)
+                if photos:
+                    await client.send_file(entity, photos, caption=MESSAGE_TEXT)
+                    count_send += 1
+                    log(f"Отправлено в {name} задержка {delay}", "DEBUG")
                 else:
                     await client.send_message(entity, MESSAGE_TEXT)
-                count_send += 1
-                log(f"Отправлено в {name} задержка {delay}", "DEBUG")
+                    count_send += 1
+                    log(f"Отправлено в {name} задержка {delay}", "DEBUG")
         except errors.FloodWaitError as e:
             log(f"Флуд ошибка жду еще {e.seconds}", "DEBUG")
-            time.sleep(e.seconds)
+            flood_error += 1
+            await asyncio.sleep(e.seconds)
         except Exception as e:
             log(f"1 Ошибка при отправке в {name}: {e}", "ERROR")
 
@@ -233,7 +266,7 @@ async def sendmessage():
     cursor.execute("SELECT id, name FROM users")
     chats = cursor.fetchall()  # вернёт [(id, name), ...]
 
-    for chat_id, chat_name in chats:
+    for chat_id, chat_name in tqdm(chats, desc="Обработка чатов"):
         if chat_id == 1637080440:
             continue
         if not is_running:
@@ -252,13 +285,15 @@ async def sendmessage():
             formatted_date = now.strftime("%d/%m/%Y %H:%M:%S")
             cursor.execute("UPDATE users SET last_message = ? WHERE id = ?", (formatted_date, chat_id,))
             conn.commit()
-            time.sleep(20)
         except Exception as e:
             print(e)
             log(f"Критическая ошибка в чате {chat_id}: {e}", "ERROR")
 
     is_running = False
-    log(f"Готово. Прошёлся по {count_send} группам.", "INFO")
+    cursor.execute("SELECT COUNT(*) FROM users")
+    chats_count = cursor.fetchone()[0]
+    diktye_id = count_send/chats_count
+    log(f"Готово. Прошёлся по {count_send}/{chats_count}({diktye_id*100}) группам.", "INFO")
     count_send = 0
 
 
@@ -396,6 +431,11 @@ async def stop_broadcast(message: types.Message):
         await message.answer("❌ У вас нет прав.")
         return
 
+    groups = await find_groups(client, "барахолка")
+
+    for g in groups:
+        print(g["title"], "-", g["link"])
+
     global is_running
     if is_running:
         is_running = False
@@ -420,8 +460,6 @@ async def status(message: types.Message):
     level_name = "Обычный пользователь"
     if level >= 1:
         level_name = "🔥 Администратор"
-
-    # Количество чатов в базе
     cursor.execute("SELECT COUNT(*) FROM users")
     chats_count = cursor.fetchone()[0]
 
@@ -445,4 +483,5 @@ async def main():
 if __name__ == '__main__':
     asyncio.run(main())
     # loop = asyncio.get_event_loop()
+
     # loop.run_until_complete(main())
