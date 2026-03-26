@@ -1,3 +1,5 @@
+import sys
+
 from telethon import TelegramClient, events, errors
 from telethon.errors import FloodWaitError
 from aiogram import Bot, Dispatcher, types
@@ -16,6 +18,9 @@ import time
 import sqlite3
 import random
 import time
+
+from win32trace import flush
+
 config_path = os.path.join(os.path.dirname(__file__), "config.json")
 
 with open(config_path, "r", encoding="utf-8") as f:
@@ -39,6 +44,9 @@ bot = Bot(token=bot_token)
 dp = Dispatcher()
 chat_id = 8172845069
 
+flood_error = 0
+fluderror = False
+fluderrortime = 0
 
 conn = sqlite3.connect("chats.db", check_same_thread=False)
 cursor = conn.cursor()
@@ -237,9 +245,10 @@ async def send_to_chat(chat_info):
                     count_send += 1
                     log(f"Отправлено в {name} задержка {delay}", "DEBUG")
         except errors.FloodWaitError as e:
+            fluderror = True
+            fluderrortime = e.seconds + 15
             log(f"Флуд ошибка жду еще {e.seconds}", "DEBUG")
             flood_error += 1
-            await asyncio.sleep(e.seconds)
         except Exception as e:
             log(f"1 Ошибка при отправке в {name}: {e}", "ERROR")
 
@@ -258,7 +267,7 @@ async def sendmessage():
     global is_running
     if is_running:
         return
-
+    fluderror = False
     is_running = True
     log("Начинаю рассылку...", "INFO")
 
@@ -267,6 +276,16 @@ async def sendmessage():
     chats = cursor.fetchall()  # вернёт [(id, name), ...]
 
     for chat_id, chat_name in tqdm(chats, desc="Обработка чатов"):
+
+        if fluderror:
+            print(f"Жду {fluderrortime} и потом кончаю вані в рота!))))❤️❤️🤣🤣😂😂")
+            await asyncio.sleep(fluderrortime)
+            print("Фуг была потная катка еле кончил, за 30 минут кончил 10 раз. Вы что не верите?????(((((")
+            fluderrortime = 0
+            fluderror = False
+
+        if flood_error >= 4:
+            sys.exit()
         if chat_id == 1637080440:
             continue
         if not is_running:
