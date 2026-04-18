@@ -32,6 +32,8 @@ api_hash = config["api_hash"]
 phone = config["phone"]
 bot_token = config["token_bot"]
 teg = config["metioning"]
+countsend = config["countsend"]
+skolkojdatu = config["skolkojdatu"]
 delay_range = config.get("delay", [20, 35])
 MESSAGE_TEXT = config.get("message")
 ADMIN_ID = config["admin_id"]
@@ -265,11 +267,12 @@ is_running = False
 async def sendmessage():
     global count_send
     global is_running
+    global cound_sended
     if is_running:
         return
     fluderror = False
     is_running = True
-    log("Начинаю рассылку...", "INFO")
+    log("Начинаю работу...", "INFO")
 
     # достаём все чаты из базы
     cursor.execute("SELECT id, name FROM users")
@@ -278,7 +281,7 @@ async def sendmessage():
     for chat_id, chat_name in tqdm(chats, desc="Обработка чатов"):
 
         if fluderror:
-            print(f"Жду {fluderrortime} и потом кончаю вані в рота!))))❤️❤️🤣🤣😂😂")
+            print(f"Жду {fluderrortime} и потом лю ваню))))❤️❤️🤣🤣😂😂")
             await asyncio.sleep(fluderrortime)
             print("Фуг была потная катка еле кончил, за 30 минут кончил 10 раз. Вы что не верите?????(((((")
             fluderrortime = 0
@@ -291,6 +294,9 @@ async def sendmessage():
         if not is_running:
             break
 
+        if cound_sended >= countsend:
+            await asyncio.sleep(skolkojdatu)
+            cound_sended = 0
         # создаём структуру, как в send_to_chat
         chat_info = {
             "chat": chat_id,
@@ -299,7 +305,7 @@ async def sendmessage():
 
         try:
             await send_to_chat(chat_info)
-
+            cound_sended += 1
             now = datetime.now()
             formatted_date = now.strftime("%d/%m/%Y %H:%M:%S")
             cursor.execute("UPDATE users SET last_message = ? WHERE id = ?", (formatted_date, chat_id,))
@@ -316,7 +322,7 @@ async def sendmessage():
     count_send = 0
 
 
-async def senduu():
+async def updatechats():
     dialogs = await client.get_dialogs()
 
     for d in dialogs:
@@ -370,9 +376,9 @@ def check_admin(user_id: int) -> bool:
 # Функция, которая будет получать сообщения через MTProto и отправлять их в aiogram
 def get_keyboard(is_admin: bool = False):
     kb = ReplyKeyboardBuilder()
-    kb.button(text="🔄 Собрать чаты")
-    kb.button(text="🚀 Запустить рассылку")
-    kb.button(text="⛔ Остановить рассылку")
+    kb.button(text="🔄 Собрать")
+    kb.button(text="🚀 Запустить")
+    kb.button(text="⛔ Остановить")
     kb.button(text="📊 Статус")
     kb.adjust(2)
     if is_admin:
@@ -416,18 +422,18 @@ async def cmd_start(message: types.Message):
     )
 
 # ====================== Сбор чатов ======================
-@dp.message(lambda m: m.text == "🔄 Собрать чаты")
+@dp.message(lambda m: m.text == "🔄 Собрать")
 async def collect_chats(message: types.Message):
     if not check_admin(message.from_user.id):
         await message.answer("❌ У вас нет прав на эту команду.")
         return
 
-    await message.answer("🔄 <b>Запускаю сбор чатов...</b>\nЭто может занять некоторое время.", parse_mode="HTML")
-    await senduu()  # твоя функция сбора
-    await message.answer("✅ <b>Сбор чатов завершён!</b>\nВсе группы добавлены в базу.", parse_mode="HTML")
+    await message.answer("🔄 <b>Запускаю сбор ...</b>\nЭто может занять некоторое время.", parse_mode="HTML")
+    await updatechats()  # твоя функция сбора
+    await message.answer("✅ <b>Сбор завершён!</b>\nВсе  добавлены в базу.", parse_mode="HTML")
 
 # ====================== Запуск рассылки ======================
-@dp.message(lambda m: m.text == "🚀 Запустить рассылку")
+@dp.message(lambda m: m.text == "🚀 Запустить")
 async def start_broadcast(message: types.Message):
     user_id = message.from_user.id
     if not check_admin(user_id):
@@ -441,10 +447,10 @@ async def start_broadcast(message: types.Message):
     cursor2.execute("UPDATE users SET sends = sends + 1 WHERE id = ?", (user_id,))
     conn2.commit()
 
-    await message.answer("✅ <b>Рассылка заверщина!</b>\nСледите за логами в консоли.", parse_mode="HTML")
+    await message.answer("✅ <b> заверщина!</b>\nСледите за логами в консоли.", parse_mode="HTML")
 
 # ====================== Остановка ======================
-@dp.message(lambda m: m.text == "⛔ Остановить рассылку")
+@dp.message(lambda m: m.text == "⛔ Остановить")
 async def stop_broadcast(message: types.Message):
     if not check_admin(message.from_user.id):
         await message.answer("❌ У вас нет прав.")
@@ -458,9 +464,9 @@ async def stop_broadcast(message: types.Message):
     global is_running
     if is_running:
         is_running = False
-        await message.answer("⛔ <b>Рассылка остановлена вручную.</b>", parse_mode="HTML")
+        await message.answer("⛔ <b> остановлена вручную.</b>", parse_mode="HTML")
     else:
-        await message.answer("ℹ️ Рассылка и так не запущена.")
+        await message.answer("ℹ️  и так не запущена.")
 
 # ====================== Статус ======================
 @dp.message(lambda m: m.text == "📊 Статус")
@@ -486,10 +492,10 @@ async def status(message: types.Message):
         f"<b>📊 Ваша статистика</b>\n\n"
         f"👤 <b>Имя:</b> {name}\n"
         f"🆔 <b>ID:</b> {user_id}\n"
-        f"📤 <b>Запущено рассылок:</b> {sends}\n"
+        f"📤 <b>Запущено :</b> {sends}\n"
         f"🔑 <b>Уровень доступа:</b> {level_name} (уровень {level})\n"
-        f"💬 <b>Чатов в базе:</b> {chats_count}\n"
-        f"🚀 <b>Рассылка активна:</b> {'Да' if is_running else 'Нет'}",
+        f"💬 <b> в базе:</b> {chats_count}\n"
+        f"🚀 <b> активна:</b> {'Да' if is_running else 'Нет'}",
         parse_mode="HTML"
     )
 
