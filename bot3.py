@@ -466,7 +466,7 @@ async def stop_broadcast(message: types.Message):
         is_running = False
         await message.answer("⛔ <b> остановлена вручную.</b>", parse_mode="HTML")
     else:
-        await message.answer("ℹ️  и так не запущена.")
+        await message.answer("ℹ️  и так не запущена.") #bot
 
 # ====================== Статус ======================
 @dp.message(lambda m: m.text == "📊 Статус")
