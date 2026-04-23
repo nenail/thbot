@@ -472,7 +472,7 @@ async def stop_broadcast(message: types.Message):
 @dp.message(lambda m: m.text == "📊 Статус")
 async def status(message: types.Message):
     user_id = message.from_user.id
-
+    #bot
     cursor2.execute("SELECT name, sends, accesslevel FROM users WHERE id = ?", (user_id,))
     result = cursor2.fetchone()
 
