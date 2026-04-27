@@ -33,6 +33,7 @@ phone = config["phone"]
 bot_token = config["token_bot"]
 teg = config["metioning"]
 countsend = config["countsend"]
+
 skolkojdatu = config["skolkojdatu"]
 delay_range = config.get("delay", [20, 35])
 MESSAGE_TEXT = config.get("message")
@@ -49,7 +50,7 @@ chat_id = 8172845069
 flood_error = 0
 fluderror = False
 fluderrortime = 0
-
+cound_sended = 0
 conn = sqlite3.connect("chats.db", check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute("""
