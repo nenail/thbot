@@ -28,7 +28,7 @@ with open(config_path, "r", encoding="utf-8") as f:
 
 topics = config["topics"]
 api_id = config["api_id"]
-api_hash = config["api_hash"]
+api_hash = config["api_hash"] #dgdgd
 phone = config["phone"]
 bot_token = config["token_bot"]
 teg = config["metioning"]
